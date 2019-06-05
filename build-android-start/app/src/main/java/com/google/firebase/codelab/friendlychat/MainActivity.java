@@ -121,7 +121,7 @@ public class MainActivity extends AppCompatActivity
 
         firebaseAuth = FirebaseAuth.getInstance();
         firebaseUser = firebaseAuth.getCurrentUser();
-        if(firebaseUser != null) {
+        if(firebaseUser == null) {
             // Not signed in, launch sign-in activity
             startActivity(new Intent(this, SignInActivity.class));
             finish();
