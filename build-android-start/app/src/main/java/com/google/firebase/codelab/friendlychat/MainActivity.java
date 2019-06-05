@@ -108,6 +108,8 @@ public class MainActivity extends AppCompatActivity
     private ImageView mAddMessageImageView;
 
     // Firebase instance variables
+    private FirebaseAuth firebaseAuth;
+    private FirebaseUser firebaseUser;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -116,6 +118,20 @@ public class MainActivity extends AppCompatActivity
         mSharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
         // Set default username is anonymous.
         mUsername = ANONYMOUS;
+
+        firebaseAuth = FirebaseAuth.getInstance();
+        firebaseUser = firebaseAuth.getCurrentUser();
+        if(firebaseUser != null) {
+            // Not signed in, launch sign-in activity
+            startActivity(new Intent(this, SignInActivity.class));
+            finish();
+            return;
+        } else {
+            mUsername = firebaseUser.getDisplayName();
+            if(firebaseUser.getPhotoUrl() != null) {
+                mPhotoUrl = firebaseUser.getPhotoUrl().toString();
+            }
+        }
 
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .enableAutoManage(this /* FragmentActivity */, this /* OnConnectionFailedListener */)
