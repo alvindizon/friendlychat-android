@@ -110,6 +110,8 @@ public class MainActivity extends AppCompatActivity
     // Firebase instance variables
     private FirebaseAuth firebaseAuth;
     private FirebaseUser firebaseUser;
+    private DatabaseReference firebaseDatabaseReference;
+    private FirebaseRecyclerAdapter<FriendlyMessage, MessageViewHolder> firebaseAdapter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -145,7 +147,101 @@ public class MainActivity extends AppCompatActivity
         mLinearLayoutManager.setStackFromEnd(true);
         mMessageRecyclerView.setLayoutManager(mLinearLayoutManager);
 
-        mProgressBar.setVisibility(ProgressBar.INVISIBLE);
+        // Add existing messages to RV,and listen to new child entries under the messages path in
+        // Firebase DB
+        firebaseDatabaseReference = FirebaseDatabase.getInstance().getReference();
+        SnapshotParser<FriendlyMessage> parser = new SnapshotParser<FriendlyMessage>() {
+            @NonNull
+            @Override
+            public FriendlyMessage parseSnapshot(@NonNull DataSnapshot snapshot) {
+                FriendlyMessage message = snapshot.getValue(FriendlyMessage.class);
+                if(message != null) {
+                    message.setId(snapshot.getKey());
+                }
+                return message;
+            }
+        };
+
+        DatabaseReference messageRef = firebaseDatabaseReference.child(MESSAGES_CHILD);
+        FirebaseRecyclerOptions<FriendlyMessage> options =
+                new FirebaseRecyclerOptions.Builder<FriendlyMessage>()
+                    .setQuery(messageRef, parser)
+                    .build();
+        firebaseAdapter = new FirebaseRecyclerAdapter<FriendlyMessage, MessageViewHolder>(options) {
+            @Override
+            protected void onBindViewHolder(@NonNull final MessageViewHolder holder, int position, @NonNull FriendlyMessage model) {
+                mProgressBar.setVisibility(ProgressBar.INVISIBLE);
+                if(model.getText() != null) {
+                    holder.messageTextView.setText(model.getText());
+                    holder.messageTextView.setVisibility(TextView.VISIBLE);
+                    holder.messageImageView.setVisibility(ImageView.GONE);
+                } else if (model.getImageUrl() != null) {
+                    String imageUrl = model.getImageUrl();
+                    if(imageUrl.startsWith("gs://")) {
+                        StorageReference storageReference = FirebaseStorage.getInstance()
+                                .getReferenceFromUrl(imageUrl);
+                        storageReference.getDownloadUrl().addOnCompleteListener(
+                                new OnCompleteListener<Uri>() {
+                                    @Override
+                                    public void onComplete(@NonNull Task<Uri> task) {
+                                        if(task.isSuccessful()) {
+                                            String downloadUrl = task.getResult().toString();
+                                            Glide.with(holder.messageImageView.getContext())
+                                                    .load(downloadUrl)
+                                                    .into(holder.messageImageView);
+                                        } else {
+                                            Log.w(TAG, "Getting download url was not successful.",
+                                                    task.getException());
+                                        }
+                                    }
+                                });
+                    } else {
+                        Glide.with(holder.messageImageView.getContext())
+                                .load(model.getImageUrl())
+                                .into(holder.messageImageView);
+                    }
+                    holder.messageImageView.setVisibility(ImageView.VISIBLE);
+                    holder.messageTextView.setVisibility(TextView.GONE);
+                }
+
+                holder.messengerTextView.setText(model.getName());
+                if(model.getPhotoUrl() == null) {
+                    holder.messageImageView.setImageDrawable(ContextCompat.getDrawable(MainActivity.this,
+                        R.drawable.ic_account_circle_black_36dp));
+                } else {
+                    Glide.with(MainActivity.this)
+                            .load(model.getPhotoUrl())
+                            .into(holder.messengerImageView);
+                }
+
+            }
+
+            @NonNull
+            @Override
+            public MessageViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+                LayoutInflater inflater = LayoutInflater.from(parent.getContext());
+                return new MessageViewHolder(inflater.inflate(R.layout.item_message, parent, false));
+            }
+        };
+
+        firebaseAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
+            @Override
+            public void onItemRangeInserted(int positionStart, int itemCount) {
+                super.onItemRangeInserted(positionStart, itemCount);
+                int friendlyMessageCount = firebaseAdapter.getItemCount();
+                int lastVisiblePosition =
+                        mLinearLayoutManager.findLastCompletelyVisibleItemPosition();
+                // If the recycler view is initially being loaded or the
+                // user is at the bottom of the list, scroll to the bottom
+                // of the list to show the newly added message.
+                if (lastVisiblePosition == -1 ||
+                        (positionStart >= (friendlyMessageCount - 1) &&
+                                lastVisiblePosition == (positionStart - 1))) {
+                    mMessageRecyclerView.scrollToPosition(positionStart);
+                }
+            }
+        });
+        mMessageRecyclerView.setAdapter(firebaseAdapter);
 
         mMessageEditText = (EditText) findViewById(R.id.messageEditText);
         mMessageEditText.addTextChangedListener(new TextWatcher() {
@@ -193,12 +289,14 @@ public class MainActivity extends AppCompatActivity
 
     @Override
     public void onPause() {
+        firebaseAdapter.stopListening();
         super.onPause();
     }
 
     @Override
     public void onResume() {
         super.onResume();
+        firebaseAdapter.startListening();
     }
 
     @Override
